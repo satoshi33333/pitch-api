@@ -379,6 +379,56 @@ function initSynths() {
 }
 
 // ============================================================
+// ピッチ解析（Render APIサーバー）
+// ============================================================
+async function analyzeAudioFromBlob(blob) {
+  try {
+    const formData = new FormData();
+    formData.append('file', blob, 'recording.webm');
+
+    const res = await Promise.race([
+      fetch('https://pitch-api-x42s.onrender.com/analyze', {
+        method: 'POST',
+        body: formData
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000))
+    ]);
+
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const data = await res.json();
+
+    // pyin版サーバーはrepresentative_midisを返す（音節ごとの代表ピッチ）
+    const validMidis = (data.representative_midis && data.representative_midis.length > 0)
+      ? data.representative_midis
+      : (data.pitches || [])
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 8)
+          .sort((a, b) => a.time - b.time)
+          .map(p => p.midi);
+
+    console.log('[Pitch API] representative_midis:', data.representative_midis);
+    console.log('[Pitch API] validMidis:', validMidis);
+    console.log('[Pitch API] tempo:', data.tempo, 'syllables:', data.syllable_count);
+
+    return {
+      duration: data.duration || 2,
+      syllables: data.syllable_count || 2,
+      syllableData: data.syllables || [],
+      estimatedBPM: data.tempo || 90,
+      brightness: data.brightness || 0.5,
+      energy: Math.min(1, (data.rms_mean || 0.1) * 10),
+      rms: data.rms_mean || 0.1,
+      avgMidi: validMidis[0] || 60,
+      validMidis,
+      rawPitches: data.pitches || []
+    };
+  } catch(e) {
+    console.warn('[Pitch API] failed:', e.message);
+    return { duration: 2, syllables: 2, syllableData: [], estimatedBPM: 90, brightness: 0.5, energy: 0.5, rms: 0.1, avgMidi: 60, validMidis: [], rawPitches: [] };
+  }
+}
+
+// ============================================================
 // バッキング生成（Claude API）
 // ============================================================
 async function generateBacking(features, roundIdx) {
