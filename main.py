@@ -1,6 +1,6 @@
 """
-Pitch Analysis + Claude Backing API v3
-音声ピッチ解析＋Claude APIプロキシ
+Pitch Analysis + Claude Backing API v3.1
+Python 3.14対応（soundfileで直接読み込み）
 """
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -8,12 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
 import librosa
+import soundfile as sf
 import tempfile
 import os
+import io
 import httpx
 from typing import Optional, List
 
-app = FastAPI(title="Pitch Analysis API", version="3.0.0")
+app = FastAPI(title="Pitch Analysis API", version="3.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,28 +26,50 @@ app.add_middleware(
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": "3.1.0"}
 
 
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
-    """音声ファイルを解析してピッチ・リズム・音節情報を返す（pyin使用）"""
-    suffix = os.path.splitext(file.filename or "audio.webm")[1] or ".webm"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
+    raw = await file.read()
 
-    try:
-        y, sr = librosa.load(tmp_path, sr=22050, mono=True)
-    except Exception as e:
-        os.unlink(tmp_path)
-        raise HTTPException(status_code=422, detail=f"読み込み失敗: {str(e)}")
-    finally:
-        os.unlink(tmp_path)
+    # ffmpegでwebm→wavに変換してからsoundfileで読む
+    import subprocess, shutil
+    y, sr = None, None
 
-    duration = float(librosa.get_duration(y=y, sr=sr))
+    if shutil.which("ffmpeg"):
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_in:
+            tmp_in.write(raw)
+            tmp_in_path = tmp_in.name
+        tmp_out_path = tmp_in_path.replace(".webm", ".wav")
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", tmp_in_path, "-ar", "22050", "-ac", "1", tmp_out_path],
+                capture_output=True, check=True
+            )
+            y, sr = sf.read(tmp_out_path, dtype="float32")
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"ffmpeg変換失敗: {str(e)}")
+        finally:
+            os.unlink(tmp_in_path)
+            if os.path.exists(tmp_out_path):
+                os.unlink(tmp_out_path)
+    else:
+        # ffmpegがない場合はsoundfileで直接試みる
+        try:
+            y, sr = sf.read(io.BytesIO(raw), dtype="float32")
+            if y.ndim > 1:
+                y = y.mean(axis=1)
+            if sr != 22050:
+                y = librosa.resample(y, orig_sr=sr, target_sr=22050)
+                sr = 22050
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"読み込み失敗: {str(e)}")
+
+    duration = float(len(y) / sr)
     hop_length = 256
 
     # pyin: 声専用高精度ピッチ検出
@@ -77,7 +101,9 @@ async def analyze(file: UploadFile = File(...)):
     tempo = max(40.0, min(220.0, tempo))
 
     # 音節オンセット
-    onset_frames = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop_length, backtrack=True, units="frames")
+    onset_frames = librosa.onset.onset_detect(
+        y=y, sr=sr, hop_length=hop_length, backtrack=True, units="frames"
+    )
     onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop_length)
     syllables = []
     for i, onset in enumerate(onset_times):
@@ -87,7 +113,7 @@ async def analyze(file: UploadFile = File(...)):
     rms_mean = float(np.mean(librosa.feature.rms(y=y, hop_length=hop_length)[0]))
     brightness = min(1.0, float(np.mean(librosa.feature.zero_crossing_rate(y, hop_length=hop_length)[0])) * 50)
 
-    # 音節ごとの代表ピッチ（中央値）
+    # 音節ごとの代表ピッチ
     representative_midis = []
     for syl in syllables[:8]:
         start_t, end_t = syl["onset"], syl["onset"] + syl["duration"]
@@ -115,11 +141,8 @@ class ClaudeRequest(BaseModel):
 
 @app.post("/claude")
 async def claude_proxy(req: ClaudeRequest):
-    """Claude APIのプロキシ（CORSを回避するためサーバー経由で呼ぶ）"""
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set")
-
-    messages = [{"role": "user", "content": req.prompt}]
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
@@ -133,17 +156,15 @@ async def claude_proxy(req: ClaudeRequest):
                 "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 400,
                 "system": "You are a music composer. Respond with ONLY valid JSON, no markdown, no explanation.",
-                "messages": messages,
+                "messages": [{"role": "user", "content": req.prompt}],
             }
         )
 
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
-    data = resp.json()
-    text = (data.get("content", [{}])[0].get("text", "")).strip()
-    # JSONとして返す
     import json
+    text = (resp.json().get("content", [{}])[0].get("text", "")).strip()
     try:
         return json.loads(text)
     except Exception:
