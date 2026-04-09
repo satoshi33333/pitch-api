@@ -1,16 +1,19 @@
 """
-Pitch Analysis API v2
-声専用ピッチ解析サーバー（pyinアルゴリズム使用）
+Pitch Analysis + Claude Backing API v3
+音声ピッチ解析＋Claude APIプロキシ
 """
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import numpy as np
 import librosa
 import tempfile
 import os
+import httpx
+from typing import Optional, List
 
-app = FastAPI(title="Pitch Analysis API", version="2.0.0")
+app = FastAPI(title="Pitch Analysis API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,12 +22,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "3.0.0"}
+
 
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
+    """音声ファイルを解析してピッチ・リズム・音節情報を返す（pyin使用）"""
     suffix = os.path.splitext(file.filename or "audio.webm")[1] or ".webm"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(await file.read())
@@ -41,7 +48,7 @@ async def analyze(file: UploadFile = File(...)):
     duration = float(librosa.get_duration(y=y, sr=sr))
     hop_length = 256
 
-    # pyin: 声専用・高精度ピッチ検出
+    # pyin: 声専用高精度ピッチ検出
     f0, voiced_flag, voiced_prob = librosa.pyin(
         y,
         fmin=librosa.note_to_hz('C2'),
@@ -77,7 +84,6 @@ async def analyze(file: UploadFile = File(...)):
         end = float(onset_times[i + 1]) if i + 1 < len(onset_times) else duration
         syllables.append({"onset": round(float(onset), 4), "duration": round(end - float(onset), 4)})
 
-    # 音声特徴
     rms_mean = float(np.mean(librosa.feature.rms(y=y, hop_length=hop_length)[0]))
     brightness = min(1.0, float(np.mean(librosa.feature.zero_crossing_rate(y, hop_length=hop_length)[0])) * 50)
 
@@ -100,3 +106,45 @@ async def analyze(file: UploadFile = File(...)):
         "pitches": pitch_list,
         "representative_midis": representative_midis,
     }
+
+
+class ClaudeRequest(BaseModel):
+    prompt: str
+    history: Optional[List[dict]] = []
+
+
+@app.post("/claude")
+async def claude_proxy(req: ClaudeRequest):
+    """Claude APIのプロキシ（CORSを回避するためサーバー経由で呼ぶ）"""
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set")
+
+    messages = [{"role": "user", "content": req.prompt}]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 400,
+                "system": "You are a music composer. Respond with ONLY valid JSON, no markdown, no explanation.",
+                "messages": messages,
+            }
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    data = resp.json()
+    text = (data.get("content", [{}])[0].get("text", "")).strip()
+    # JSONとして返す
+    import json
+    try:
+        return json.loads(text)
+    except Exception:
+        raise HTTPException(status_code=500, detail=f"JSON parse error: {text}")

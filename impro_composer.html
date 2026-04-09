@@ -460,15 +460,10 @@ Return ONLY valid JSON with same structure.`;
 
   try {
     const res = await Promise.race([
-      fetch('https://api.anthropic.com/v1/messages', {
+      fetch('https://pitch-api-x42s.onrender.com/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 400,
-          system: 'You are a music composer. Respond with ONLY valid JSON, no markdown, no explanation.',
-          messages: [{ role: 'user', content: prompt }]
-        })
+        body: JSON.stringify({ prompt, history: claudeHistory.slice(-2) })
       }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
     ]);
