@@ -300,14 +300,20 @@ function stopRecording() {
   document.getElementById('rec-lbl').textContent = 'REC';
   setStatusDots('変換中', 'active');
 
-  // effectRecorderを先に止める（onEffectRecordingStopがトリガーされる）
-  if (effectRecorder && effectRecorder.state !== 'inactive') effectRecorder.stop();
-  // rawRecorderはeffectRecorderのonstopハンドラー内で参照するため少し遅らせる
+  // rawRecorderを先に止める → データが揃ってからeffectRecorderを止める
+  if (rawRecorder && rawRecorder.state !== 'inactive') {
+    rawRecorder.onstop = () => {
+      // rawChunksが確実に揃った後でeffectRecorderを止める
+      if (effectRecorder && effectRecorder.state !== 'inactive') effectRecorder.stop();
+    };
+    rawRecorder.stop();
+  } else {
+    if (effectRecorder && effectRecorder.state !== 'inactive') effectRecorder.stop();
+  }
   setTimeout(() => {
-    if (rawRecorder && rawRecorder.state !== 'inactive') rawRecorder.stop();
     if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
     if (recordCtx) recordCtx.close().catch(() => {});
-  }, 100);
+  }, 200);
 }
 
 async function onEffectRecordingStop() {
