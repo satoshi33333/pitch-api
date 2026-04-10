@@ -71,6 +71,8 @@ async def analyze(file: UploadFile = File(...)):
 
     duration = float(len(y) / sr)
     hop_length = 256
+    import logging
+    logging.warning(f"[analyze] duration={duration:.2f}s, sr={sr}, samples={len(y)}, rms={float(np.sqrt(np.mean(y**2))):.4f}")
 
     # pyin: 声専用高精度ピッチ検出
     f0, voiced_flag, voiced_prob = librosa.pyin(
@@ -121,6 +123,7 @@ async def analyze(file: UploadFile = File(...)):
         if midis_in_syl:
             representative_midis.append(int(np.median(midis_in_syl)))
 
+    logging.warning(f"[analyze] pitch_count={len(pitch_list)}, syllables={len(syllables)}, rep_midis={representative_midis}")
     return {
         "duration": round(duration, 3),
         "tempo": round(tempo, 1),
