@@ -88,6 +88,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-ser
 // STATE
 // ============================================================
 const PITCH_API = 'https://pitch-api-x42s.onrender.com';
+
+// ページ読み込み時にサーバーをウォームアップ（スリープ解除）
+(async () => {
+  try {
+    await fetch(PITCH_API + '/health', { method: 'GET' });
+    console.log('[Server] warmed up');
+  } catch(e) {
+    console.log('[Server] warmup failed, will retry on first use');
+  }
+})();
 let isRecording = false;
 let mediaStream = null;
 let waveAnimId = null;
@@ -383,6 +393,8 @@ function initSynths() {
 // ============================================================
 async function analyzeAudioFromBlob(blob) {
   try {
+    // サーバーがスリープ中の場合、最大60秒かかる旨を表示
+    setStatus('ピッチ解析中（初回は起動に時間がかかる場合があります）', 'active');
     const formData = new FormData();
     formData.append('file', blob, 'recording.webm');
 
@@ -391,7 +403,7 @@ async function analyzeAudioFromBlob(blob) {
         method: 'POST',
         body: formData
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 60000))
     ]);
 
     if (!res.ok) throw new Error(`API error: ${res.status}`);
