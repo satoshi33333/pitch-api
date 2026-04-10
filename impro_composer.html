@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>言葉から音楽へ</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; background: #0c0c0c; color: #f0f0ee; min-height: 100vh; }
+.app { max-width: 520px; margin: 0 auto; padding: 2.5rem 1.25rem; }
+.screen { display: none; }
+.screen.active { display: block; }
+.title { font-size: 24px; font-weight: 700; margin-bottom: 0.3rem; letter-spacing: -0.5px; }
+.subtitle { font-size: 14px; color: #666; line-height: 1.7; margin-bottom: 2.5rem; }
+.center { display: flex; flex-direction: column; align-items: center; }
+.rec-btn { width: 120px; height: 120px; border-radius: 50%; border: 2px solid #2a2a2a; background: #161616; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; gap: 8px; margin: 1.5rem 0; user-select: none; }
+.rec-btn:hover { border-color: #444; }
+.rec-btn.recording { border-color: #e24b4a; animation: rpulse 1s infinite; }
+.rec-icon { width: 32px; height: 32px; border-radius: 50%; background: #e24b4a; transition: all 0.2s; }
+.rec-btn.recording .rec-icon { border-radius: 7px; }
+.rec-lbl { font-size: 11px; color: #555; letter-spacing: 0.08em; }
+.rec-btn.recording .rec-lbl { color: #e24b4a; }
+@keyframes rpulse { 0%,100%{box-shadow:0 0 0 0 rgba(226,75,74,0.2)} 50%{box-shadow:0 0 0 20px rgba(226,75,74,0)} }
+.waveform { height: 44px; display: flex; align-items: center; gap: 2px; margin: 0.5rem 0 1.5rem; }
+.bar { width: 3px; border-radius: 2px; background: #222; transition: height 0.07s; }
+.bar.live { background: #e24b4a; }
+.status-row { font-size: 13px; color: #555; text-align: center; min-height: 22px; margin-bottom: 1.5rem; }
+.status-row.active { color: #4a9eff; }
+.status-row.rec { color: #e24b4a; }
+.rounds { margin: 1rem 0; display: flex; flex-direction: column; gap: 8px; }
+.round-item { background: #161616; border: 1px solid #222; border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+.round-num { font-size: 11px; color: #444; min-width: 20px; }
+.round-bar { flex: 1; height: 3px; background: #222; border-radius: 2px; overflow: hidden; }
+.round-fill { height: 100%; border-radius: 2px; background: #4a9eff; transition: width 1.5s ease; }
+.round-mood { font-size: 11px; color: #555; min-width: 70px; text-align: right; }
+.session-controls { margin-top: 1rem; }
+.end-btn { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #3a2020; background: transparent; color: #a05050; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+.end-btn:hover { border-color: #663333; color: #e24b4a; }
+.complete-box { background: #161616; border: 1px solid #222; border-radius: 16px; padding: 2rem; text-align: center; margin-bottom: 1.5rem; }
+.complete-title { font-size: 20px; font-weight: 700; margin-bottom: 0.5rem; }
+.complete-sub { font-size: 13px; color: #666; margin-bottom: 2rem; }
+.play-all-btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 28px; border-radius: 10px; border: 1px solid #333; background: transparent; color: #f0f0ee; font-size: 14px; cursor: pointer; transition: all 0.15s; }
+.play-all-btn:hover { border-color: #555; }
+.restart-btn { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #252525; background: transparent; color: #555; font-size: 13px; cursor: pointer; margin-top: 0.5rem; }
+.restart-btn:hover { color: #888; }
+.dots::after { content: '.'; animation: dd 1.2s infinite; }
+@keyframes dd { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+</style>
+</head>
+<body>
+<div class="app">
+
+<div class="screen active" id="screen-session">
+  <div class="title">言葉から音楽へ</div>
+  <div class="subtitle">言葉を声に出してください。<br>あなたの言葉が音楽に変わっていきます。</div>
+  <div class="center">
+    <div class="rec-btn" id="rec-btn">
+      <div class="rec-icon" id="rec-icon"></div>
+      <div class="rec-lbl" id="rec-lbl">REC</div>
+    </div>
+  </div>
+  <div class="waveform" id="waveform">
+    <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+  </div>
+  <div class="status-row" id="status-row">タップして録音開始</div>
+  <div class="rounds" id="rounds"></div>
+  <div class="session-controls" id="session-controls" style="display:none">
+    <button class="end-btn" onclick="endSession()">セッションを終了</button>
+  </div>
+</div>
+
+<div class="screen" id="screen-complete">
+  <div class="title">セッション完了</div>
+  <div class="subtitle">言葉が音楽になりました</div>
+  <div class="complete-box">
+    <div class="complete-title" id="complete-label"></div>
+    <div class="complete-sub">言葉が音楽へと変容した旅</div>
+    <button class="play-all-btn" id="play-all-btn" onclick="playAll()">▶ 通して再生</button>
+  </div>
+  <button class="restart-btn" onclick="restart()">もう一度始める</button>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script>
+// ============================================================
+// STATE
+// ============================================================
+const PITCH_API = 'https://pitch-api-x42s.onrender.com';
+
+// ページ読み込み時にサーバーをウォームアップ（スリープ解除）
+let serverReady = false;
+const serverReadyPromise = (async () => {
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await fetch(PITCH_API + '/health', { method: 'GET' });
+      if (res.ok) {
+        console.log('[Server] warmed up');
+        serverReady = true;
+        return true;
+      }
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  console.log('[Server] warmup failed');
+  return false;
+})();
+let isRecording = false;
+let mediaStream = null;
+let waveAnimId = null;
+
+// リアルタイムエフェクト用
+let recordCtx = null;       // 録音中のAudioContext
+let analyserNode = null;
+let effectChainDest = null; // エフェクト後の音を録音するMediaStreamDestination
+let effectRecorder = null;  // エフェクト済み音声を録音するMediaRecorder
+let effectChunks = [];
+let rawRecorder = null;     // 生声録音（ピッチ解析用）
+let rawChunks = [];
+
+// セッション
+let sessionRounds = [];     // [{blobUrl, duration, mood}]
+let claudeHistory = [];
+
+// 再生
+let playlist = [];
+let playlistIdx = 0;
+let isPlaying = false;
+let currentNodes = null;
+let toneReady = false;
+let sharedSynths = null;
+
+const BPM_BASE = 90;
+
+// ============================================================
+// UI
+// ============================================================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function setStatus(text, cls) {
+  const el = document.getElementById('status-row');
+  el.textContent = text;
+  el.className = 'status-row' + (cls ? ' ' + cls : '');
+}
+function setStatusDots(text, cls) {
+  const el = document.getElementById('status-row');
+  el.innerHTML = text + '<span class="dots"></span>';
+  el.className = 'status-row' + (cls ? ' ' + cls : '');
+}
+
+// ============================================================
+// 録音 + リアルタイムエフェクト
+// ============================================================
+document.getElementById('rec-btn').addEventListener('click', toggleRecord);
+
+async function toggleRecord() {
+  if (!isRecording) await startRecording();
+  else stopRecording();
+}
+
+async function startRecording() {
+  // Toneを先に初期化（ユーザージェスチャー直後）
+  await ensureToneReady();
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch(e) {
+    setStatus('マイクへのアクセスを許可してください');
+    return;
+  }
+
+  // AudioContextを作成してリアルタイムエフェクトをかける
+  recordCtx = new AudioContext();
+  const source = recordCtx.createMediaStreamSource(mediaStream);
+
+  // エフェクトチェーン構築
+  const chain = buildEffectChain(recordCtx, source);
+
+  // エフェクト済み音声をMediaStreamDestinationに出力→録音
+  effectChainDest = recordCtx.createMediaStreamDestination();
+  chain.connect(effectChainDest);
+
+  // 波形確認用アナライザー（エフェクト前の生声）
+  analyserNode = recordCtx.createAnalyser();
+  analyserNode.fftSize = 1024;
+  source.connect(analyserNode);
+
+  // エフェクト済み音声を録音（再生用）
+  effectChunks = [];
+  effectRecorder = new MediaRecorder(effectChainDest.stream);
+  effectRecorder.ondataavailable = e => { if (e.data.size > 0) effectChunks.push(e.data); };
+  effectRecorder.onstop = onEffectRecordingStop;
+  effectRecorder.start();
+
+  // 生声も別途録音（ピッチ解析用）
+  rawChunks = [];
+  rawRecorder = new MediaRecorder(mediaStream);
+  rawRecorder.ondataavailable = e => { if (e.data.size > 0) rawChunks.push(e.data); };
+  rawRecorder.start();
+
+  isRecording = true;
+  document.getElementById('rec-btn').classList.add('recording');
+  document.getElementById('rec-lbl').textContent = '停止';
+  setStatus('録音中...', 'rec');
+  document.getElementById('session-controls').style.display = 'block';
+  animateWave();
+}
+
+function buildEffectChain(ctx, source) {
+  // =====================
+  // 声→音への変容エフェクトチェーン
+  // ピッチシフト（playbackRate的効果はBufferSourceでないと無理なので
+  // 代わりにリングモジュレーション＋フィルターで変容させる）
+  // =====================
+
+  // 1. リングモジュレーター（声に音程感を付加）
+  const ringOsc = ctx.createOscillator();
+  ringOsc.frequency.value = 200;
+  ringOsc.type = 'sine';
+  const ringGain = ctx.createGain();
+  ringGain.gain.value = 0;
+  ringOsc.connect(ringGain.gain);
+  ringOsc.start();
+
+  const ringMod = ctx.createGain();
+  ringGain.connect(ringMod.gain); // ← これが間違い、正しくは下記
+  // 修正：oscillatorをgainのgainパラメータに接続してAMを実現
+  source.connect(ringMod);
+  ringOsc.connect(ringMod.gain);
+
+  // 2. バンドパスフィルター（声の帯域を楽器的に絞る）
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 700;
+  bp.Q.value = 3.0;
+
+  // 3. 高域ブースト（シンセ感・明るさ）
+  const highShelf = ctx.createBiquadFilter();
+  highShelf.type = 'highshelf';
+  highShelf.frequency.value = 2000;
+  highShelf.gain.value = 14;
+
+  // 4. ディストーション（倍音を加えて音程感を強化）
+  const waveShaper = ctx.createWaveShaper();
+  waveShaper.curve = distortionCurve(120);
+  waveShaper.oversample = '4x';
+
+  // 5. ディレイ（空間・残響）
+  const delay = ctx.createDelay(1.0);
+  delay.delayTime.value = 0.22;
+  const delayFB = ctx.createGain();
+  delayFB.gain.value = 0.4;
+  const delayWet = ctx.createGain();
+  delayWet.gain.value = 0.5;
+
+  // 6. リバーブ（擬似 - 複数ディレイ）
+  const revNodes = [0.05, 0.09, 0.17, 0.28].map((t, i) => {
+    const d = ctx.createDelay(0.4);
+    d.delayTime.value = t;
+    const g = ctx.createGain();
+    g.gain.value = [0.5, 0.4, 0.3, 0.15][i];
+    return { d, g };
+  });
+
+  const outGain = ctx.createGain();
+  outGain.gain.value = 0.8;
+
+  // チェーン接続
+  ringMod.connect(bp);
+  bp.connect(highShelf);
+  highShelf.connect(waveShaper);
+  waveShaper.connect(delay);
+  delay.connect(delayFB); delayFB.connect(delay);
+  delay.connect(delayWet); delayWet.connect(outGain);
+  revNodes.forEach(({ d, g }) => { waveShaper.connect(d); d.connect(g); g.connect(outGain); });
+  waveShaper.connect(outGain);
+
+  return outGain;
+}
+
+function distortionCurve(amount) {
+  const n = 512;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+function stopRecording() {
+  if (!isRecording) return;
+  isRecording = false;
+  cancelAnimationFrame(waveAnimId);
+  resetWave();
+  document.getElementById('rec-btn').classList.remove('recording');
+  document.getElementById('rec-lbl').textContent = 'REC';
+  setStatusDots('変換中', 'active');
+
+  // rawRecorderを先に止める → データが揃ってからeffectRecorderを止める
+  if (rawRecorder && rawRecorder.state !== 'inactive') {
+    rawRecorder.onstop = () => {
+      // rawChunksが確実に揃った後でeffectRecorderを止める
+      if (effectRecorder && effectRecorder.state !== 'inactive') effectRecorder.stop();
+    };
+    rawRecorder.stop();
+  } else {
+    if (effectRecorder && effectRecorder.state !== 'inactive') effectRecorder.stop();
+  }
+  setTimeout(() => {
+    if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+    if (recordCtx) recordCtx.close().catch(() => {});
+  }, 200);
+}
+
+async function onEffectRecordingStop() {
+  // エフェクト済み音声（再生用）
+  const effectBlob = new Blob(effectChunks, { type: 'audio/webm' });
+  const blobUrl = URL.createObjectURL(effectBlob);
+  const duration = effectChunks.reduce((s, c) => s + c.size, 0) / 12000;
+  const roundIdx = sessionRounds.length;
+
+  // フォールバックで即再生開始（待たせない）
+  const defaultFeatures = { duration, syllables: Math.max(1, Math.round(duration * 2.5)), brightness: 0.5, energy: 0.5, estimatedBPM: BPM_BASE, validMidis: [] };
+  const fallback = getFallbackBacking(defaultFeatures, roundIdx);
+  sessionRounds.push({ blobUrl, duration, features: defaultFeatures, backing: fallback });
+  addRoundCard(sessionRounds.length, fallback);
+  setStatus('タップして次の言葉を録音');
+  playRound(sessionRounds.length - 1);
+
+  // バックグラウンドで生声をAPIに送りピッチ解析 → バッキング即更新
+  if (rawChunks.length > 0) {
+    const rawBlob = new Blob(rawChunks, { type: 'audio/webm' });
+    analyzeAudioFromBlob(rawBlob).then(async features => {
+      console.log('[Pitch API] detected MIDIs:', features.validMidis);
+      sessionRounds[roundIdx].features = features;
+
+      // ピッチ解析結果が届いたら、まずフォールバックバッキングをピッチ付きで更新
+      if (features.validMidis.length > 0) {
+        const pitchBacking = getFallbackBacking(features, roundIdx);
+        sessionRounds[roundIdx].backing = pitchBacking;
+        // 現在このラウンドが再生中なら即座に切り替え
+        const currentRound = playlist[playlistIdx % Math.max(1, playlist.length)];
+        if (currentRound === sessionRounds[roundIdx] && isPlaying) {
+          console.log('[Player] Switching to pitch-based backing');
+          playNext();
+        }
+      }
+
+      // その後ClaudeでさらにリッチなバッキングをAI生成
+      const backing = await generateBacking(features, roundIdx);
+      if (backing) {
+        sessionRounds[roundIdx].backing = backing;
+        console.log('[Claude] new backing mood:', backing.mood, 'melody:', backing.melody);
+        updateRoundCard(roundIdx + 1, backing, features.validMidis.length);
+        // 再度切り替え
+        const currentRound2 = playlist[playlistIdx % Math.max(1, playlist.length)];
+        if (currentRound2 === sessionRounds[roundIdx] && isPlaying) {
+          console.log('[Player] Switching to Claude backing');
+          playNext();
+        }
+      }
+    }).catch(e => console.warn('Analysis failed:', e));
+  }
+}
+
+// ============================================================
+// TONE.JS 初期化
+// ============================================================
+async function ensureToneReady() {
+  if (toneReady) return;
+  await Tone.start();
+  toneReady = true;
+  initSynths();
+}
+
+function initSynths() {
+  if (sharedSynths) {
+    Object.values(sharedSynths).forEach(s => { try { s.dispose(); } catch(e){} });
+  }
+  const bass = new Tone.Synth({
+    oscillator: { type: 'fatsawtooth', count: 2, spread: 10 },
+    envelope: { attack: 0.05, decay: 0.3, sustain: 0.5, release: 1.5 },
+  }).toDestination();
+  bass.volume.value = -14;
+
+  const pad = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'fattriangle', count: 3, spread: 25 },
+    envelope: { attack: 0.5, decay: 0.5, sustain: 0.8, release: 2.5 },
+  }).toDestination();
+  pad.volume.value = -22;
+
+  const lead = new Tone.Synth({
+    oscillator: { type: 'triangle' },
+    envelope: { attack: 0.02, decay: 0.1, sustain: 0.6, release: 1.0 },
+  }).toDestination();
+  lead.volume.value = -18;
+
+  const kick = new Tone.MembraneSynth({ pitchDecay: 0.06, octaves: 6,
+    envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.2 }
+  }).toDestination();
+  kick.volume.value = -14;
+
+  const snare = new Tone.NoiseSynth({ noise: { type: 'white' },
+    envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.1 }
+  }).toDestination();
+  snare.volume.value = -18;
+
+  const hihat = new Tone.MetalSynth({ frequency: 600,
+    envelope: { attack: 0.001, decay: 0.07, release: 0.02 },
+    harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5
+  }).toDestination();
+  hihat.volume.value = -24;
+
+  sharedSynths = { bass, pad, lead, kick, snare, hihat };
+}
+
+// ============================================================
+// ピッチ解析（Render APIサーバー）
+// ============================================================
+async function analyzeAudioFromBlob(blob) {
+  try {
+    // サーバーが準備完了するまで待つ（最大15秒）
+    if (!serverReady) {
+      setStatus('サーバー起動中...少々お待ちください', 'active');
+      await Promise.race([serverReadyPromise, new Promise(r => setTimeout(r, 15000))]);
+    }
+    setStatus('ピッチ解析中...', 'active');
+    const formData = new FormData();
+    formData.append('file', blob, 'recording.webm');
+
+    const res = await Promise.race([
+      fetch('https://pitch-api-x42s.onrender.com/analyze', {
+        method: 'POST',
+        body: formData
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 60000))
+    ]);
+
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const data = await res.json();
+
+    // pyin版サーバーはrepresentative_midisを返す（音節ごとの代表ピッチ）
+    const validMidis = (data.representative_midis && data.representative_midis.length > 0)
+      ? data.representative_midis
+      : (data.pitches || [])
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 8)
+          .sort((a, b) => a.time - b.time)
+          .map(p => p.midi);
+
+    console.log('[Pitch API] representative_midis:', data.representative_midis);
+    console.log('[Pitch API] validMidis:', validMidis);
+    console.log('[Pitch API] tempo:', data.tempo, 'syllables:', data.syllable_count);
+
+    return {
+      duration: data.duration || 2,
+      syllables: data.syllable_count || 2,
+      syllableData: data.syllables || [],
+      estimatedBPM: data.tempo || 90,
+      brightness: data.brightness || 0.5,
+      energy: Math.min(1, (data.rms_mean || 0.1) * 10),
+      rms: data.rms_mean || 0.1,
+      avgMidi: validMidis[0] || 60,
+      validMidis,
+      rawPitches: data.pitches || []
+    };
+  } catch(e) {
+    console.warn('[Pitch API] failed:', e.message);
+    return { duration: 2, syllables: 2, syllableData: [], estimatedBPM: 90, brightness: 0.5, energy: 0.5, rms: 0.1, avgMidi: 60, validMidis: [], rawPitches: [] };
+  }
+}
+
+// ============================================================
+// バッキング生成（Claude API）
+// ============================================================
+async function generateBacking(features, roundIdx) {
+  const bpm = Math.round((features.estimatedBPM + BPM_BASE) / 2);
+  const prevContext = claudeHistory.slice(-2);
+
+  // 実際に検出されたMIDIピッチを時刻順に整理
+  const pitchSequence = (features.validMidis || []).slice(0, 8);
+  const hasPitches = pitchSequence.length > 0;
+
+  // ピッチ列からメロディーのデフォルトを作成
+  const melodyDefault = hasPitches
+    ? pitchSequence.slice(0, 8).concat(Array(Math.max(0, 8 - pitchSequence.length)).fill(null))
+    : [60,62,64,62,60,null,59,60];
+
+  const prompt = roundIdx === 0
+    ? `You are a music composer creating a backing track for a voice recording.
+Voice analysis: duration=${features.duration.toFixed(1)}s, tempo=${features.estimatedBPM}bpm, energy=${features.energy.toFixed(2)}, brightness=${features.brightness.toFixed(2)}.
+${hasPitches ? `Detected pitch sequence (MIDI): ${JSON.stringify(pitchSequence)}. Use these pitches to create the melody - preserve the melodic contour (ups and downs).` : 'No pitch detected - create a fitting melody.'}
+Target BPM: ${bpm}.
+
+Create a musically rich, emotionally resonant backing. Return ONLY valid JSON:
+{"bpm":${bpm},"chords":[[60,64,67],[65,69,72],[67,71,74],[65,69,72]],"bass":[48,48,53,55,48,48,53,55],"melody":${JSON.stringify(melodyDefault)},"melodyDurs":["8n","8n","4n","8n","8n","8n","8n","4n"],"rhythm":[1,0,0,1,0,0,1,0,1,0,0,1,0,0,1,0],"hihat":[1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],"snare":[0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],"mood":"穏やか"}`
+    : `Music composer. Previous context: ${JSON.stringify(prevContext)}.
+New voice: duration=${features.duration.toFixed(1)}s, energy=${features.energy.toFixed(2)}.
+${hasPitches ? `New pitch sequence: ${JSON.stringify(pitchSequence)}. Use these as melodic seed.` : ''}
+Evolve the music naturally - change harmony or texture while keeping continuity. BPM: ${bpm}.
+Return ONLY valid JSON with same structure.`;
+
+  try {
+    const res = await Promise.race([
+      fetch('https://pitch-api-x42s.onrender.com/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, history: claudeHistory.slice(-2) })
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
+    ]);
+    const data = await res.json();
+    const text = (data.content?.[0]?.text || '').replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(text);
+    claudeHistory.push({ round: roundIdx + 1, bpm: parsed.bpm, mood: parsed.mood });
+    return parsed;
+  } catch(e) {
+    return null;
+  }
+}
+
+function getFallbackBacking(features, idx) {
+  const bpm = BPM_BASE + (idx * 5) % 20;
+  const roots = [60, 62, 65, 67, 69];
+  const root = roots[idx % roots.length];
+  const minor = idx % 2 === 1;
+  const chords = minor
+    ? [[root,root+3,root+7],[root+5,root+8,root+12],[root+7,root+10,root+14],[root+5,root+8,root+12]]
+    : [[root,root+4,root+7],[root+5,root+9,root+12],[root+7,root+11,root+14],[root+5,root+9,root+12]];
+  const bass = [root-12,root-12,root+5-12,root+5-12,root+7-12,root+7-12,root+5-12,root-12];
+  // 検出されたピッチがあればそれをメロディーとして使う
+  const validMidis = features.validMidis || [];
+  const melody = validMidis.length > 0
+    ? [...validMidis.slice(0, 8), ...Array(Math.max(0, 8 - validMidis.length)).fill(null)]
+    : [root+12, root+14, root+16, root+14, root+12, null, root+11, root+12];
+  const moods = ['穏やか','深く','躍動的','幻想的','力強く'];
+  return {
+    bpm, chords, bass, melody,
+    melodyDurs: ['8n','8n','4n','8n','8n','8n','8n','4n'],
+    rhythm: [1,0,0,1,0,0,1,0,1,0,0,1,0,0,1,0],
+    hihat:  [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],
+    snare:  [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
+    mood: moods[idx % moods.length]
+  };
+}
+
+// ============================================================
+// 再生
+// ============================================================
+function playRound(idx) {
+  playlist.push(sessionRounds[idx]);
+  if (!isPlaying) {
+    isPlaying = true;
+    playNext();
+  }
+}
+
+function playNext() {
+  if (!isPlaying) return;
+  stopCurrentNodes();
+
+  const round = playlist[playlistIdx % playlist.length];
+  const backing = round.backing;
+  const bpm = backing.bpm || BPM_BASE;
+
+  Tone.getTransport().bpm.value = bpm;
+  Tone.getTransport().cancel();
+
+  const { bass, pad, lead, kick, snare, hihat } = sharedSynths;
+
+  const bassNotes = (backing.bass || [48,48,53,55,48,48,53,55]).map(m => Tone.Frequency(m,'midi').toNote());
+  const chords = (backing.chords || [[60,64,67],[65,69,72],[67,71,74],[65,69,72]]).map(
+    c => c.map(m => Tone.Frequency(m,'midi').toNote())
+  );
+  const mel = backing.melody || [null];
+  const melDurs = backing.melodyDurs || ['8n'];
+  const kPat = backing.rhythm || [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0];
+  const hPat = backing.hihat  || [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0];
+  const sPat = backing.snare  || [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0];
+
+  let s16 = 0, ms = 0;
+  const loop = new Tone.Sequence((time) => {
+    const s = s16 % 16;
+    if (kPat[s]) kick.triggerAttackRelease('C1','16n',time);
+    if (sPat[s]) snare.triggerAttackRelease('16n',time);
+    if (hPat[s]) hihat.triggerAttackRelease('32n',time);
+    if (s % 2 === 0) bass.triggerAttackRelease(bassNotes[Math.floor(s/2)%bassNotes.length],'8n',time);
+    if (s % 8 === 0) pad.triggerAttackRelease(chords[Math.floor(s/8)%chords.length],'2n',time);
+    if (s % 2 === 0) {
+      const note = mel[ms % mel.length];
+      if (note != null) lead.triggerAttackRelease(Tone.Frequency(note,'midi').toNote(), melDurs[ms%melDurs.length]||'8n', time);
+      ms++;
+    }
+    s16++;
+  }, [...Array(16).keys()], '16n');
+
+  loop.start(0);
+  Tone.getTransport().start();
+
+  // エフェクト済み声を<audio>で再生
+  const audioEl = new Audio(round.blobUrl);
+  audioEl.loop = false;
+  audioEl.volume = 0.60;
+  audioEl.play().catch(()=>{});
+
+  const dur = Math.max(4000, (round.duration || 3) * 1000 + 1500);
+  const timer = setTimeout(() => {
+    playlistIdx++;
+    playNext();
+  }, dur);
+
+  currentNodes = { loop, audioEl, timer };
+}
+
+function stopCurrentNodes() {
+  if (!currentNodes) return;
+  const { loop, audioEl, timer } = currentNodes;
+  clearTimeout(timer);
+  try { loop.stop(); loop.dispose(); } catch(e){}
+  try { Tone.getTransport().stop(); } catch(e){}
+  try { audioEl.pause(); audioEl.src = ''; } catch(e){}
+  currentNodes = null;
+}
+
+function stopPlayback() {
+  isPlaying = false;
+  stopCurrentNodes();
+}
+
+// ============================================================
+// 波形アニメーション
+// ============================================================
+function animateWave() {
+  if (!analyserNode || !isRecording) return;
+  const data = new Uint8Array(analyserNode.frequencyBinCount);
+  analyserNode.getByteTimeDomainData(data);
+  document.querySelectorAll('#waveform .bar').forEach((b, i) => {
+    const v = Math.abs(data[Math.floor(i * data.length / 20)] - 128) / 128;
+    b.style.height = Math.max(3, Math.round(v * 44)) + 'px';
+    b.classList.add('live');
+  });
+  waveAnimId = requestAnimationFrame(animateWave);
+}
+function resetWave() {
+  document.querySelectorAll('#waveform .bar').forEach(b => {
+    b.style.height = '3px'; b.classList.remove('live');
+  });
+}
+
+// ============================================================
+// ラウンドカード
+// ============================================================
+function addRoundCard(num, backing) {
+  const c = document.getElementById('rounds');
+  const div = document.createElement('div');
+  div.id = `round-card-${num}`;
+  div.className = 'round-item';
+  div.innerHTML = `<div class="round-num">${num}</div><div class="round-bar"><div class="round-fill" id="fill-${num}" style="width:0%"></div></div><div class="round-mood" id="mood-${num}">${backing.mood || '—'}</div>`;
+  c.appendChild(div);
+  setTimeout(() => { const f = document.getElementById(`fill-${num}`); if(f) f.style.width='100%'; }, 80);
+}
+
+function updateRoundCard(num, backing, pitchCount) {
+  const mood = document.getElementById(`mood-${num}`);
+  if (mood) {
+    mood.textContent = (backing.mood || '—') + (pitchCount > 0 ? ` ♪${pitchCount}` : '');
+    mood.style.color = pitchCount > 0 ? '#4a9eff' : '#555';
+  }
+}
+
+// ============================================================
+// セッション終了・再生・リスタート
+// ============================================================
+function endSession() {
+  stopPlayback();
+  document.getElementById('complete-label').textContent = `${sessionRounds.length}つの言葉が音楽になりました`;
+  showScreen('screen-complete');
+}
+
+async function playAll() {
+  if (!sessionRounds.length) return;
+  const btn = document.getElementById('play-all-btn');
+  btn.textContent = '再生中...';
+  btn.disabled = true;
+  stopPlayback();
+  playlist = [...sessionRounds];
+  playlistIdx = 0;
+  isPlaying = true;
+  playNext();
+  const total = sessionRounds.reduce((s, r) => s + Math.max(4000, (r.duration||3)*1000+1500), 0);
+  setTimeout(() => { btn.innerHTML = '▶ 通して再生'; btn.disabled = false; }, total);
+}
+
+function restart() {
+  stopPlayback();
+  sessionRounds.forEach(r => { try { URL.revokeObjectURL(r.blobUrl); } catch(e){} });
+  sessionRounds = [];
+  claudeHistory = [];
+  playlist = [];
+  playlistIdx = 0;
+  toneReady = false;
+  if (sharedSynths) {
+    Object.values(sharedSynths).forEach(s => { try { s.dispose(); } catch(e){} });
+    sharedSynths = null;
+  }
+  document.getElementById('rounds').innerHTML = '';
+  document.getElementById('session-controls').style.display = 'none';
+  setStatus('タップして録音開始');
+  showScreen('screen-session');
+}
+</script>
+</body>
+</html>
