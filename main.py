@@ -163,8 +163,10 @@ async def claude_proxy(req: ClaudeRequest):
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
-    import json
+    import json, re
     text = (resp.json().get("content", [{}])[0].get("text", "")).strip()
+    # markdownコードブロックを除去
+    text = re.sub(r'```(?:json)?\s*', '', text).strip()
     try:
         return json.loads(text)
     except Exception:
