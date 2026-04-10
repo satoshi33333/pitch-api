@@ -90,13 +90,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-ser
 const PITCH_API = 'https://pitch-api-x42s.onrender.com';
 
 // ページ読み込み時にサーバーをウォームアップ（スリープ解除）
-(async () => {
-  try {
-    await fetch(PITCH_API + '/health', { method: 'GET' });
-    console.log('[Server] warmed up');
-  } catch(e) {
-    console.log('[Server] warmup failed, will retry on first use');
+let serverReady = false;
+const serverReadyPromise = (async () => {
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await fetch(PITCH_API + '/health', { method: 'GET' });
+      if (res.ok) {
+        console.log('[Server] warmed up');
+        serverReady = true;
+        return true;
+      }
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 3000));
   }
+  console.log('[Server] warmup failed');
+  return false;
 })();
 let isRecording = false;
 let mediaStream = null;
@@ -409,8 +417,12 @@ function initSynths() {
 // ============================================================
 async function analyzeAudioFromBlob(blob) {
   try {
-    // サーバーがスリープ中の場合、最大60秒かかる旨を表示
-    setStatus('ピッチ解析中（初回は起動に時間がかかる場合があります）', 'active');
+    // サーバーが準備完了するまで待つ（最大15秒）
+    if (!serverReady) {
+      setStatus('サーバー起動中...少々お待ちください', 'active');
+      await Promise.race([serverReadyPromise, new Promise(r => setTimeout(r, 15000))]);
+    }
+    setStatus('ピッチ解析中...', 'active');
     const formData = new FormData();
     formData.append('file', blob, 'recording.webm');
 
