@@ -15,7 +15,7 @@ import io
 import httpx
 from typing import Optional, List
 
-app = FastAPI(title="Pitch Analysis API", version="3.1.0")
+app = FastAPI(title="Pitch Analysis API", version="3.2.0")
 
 app.add_middleware(
     CORSMiddleware,
