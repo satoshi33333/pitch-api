@@ -315,21 +315,35 @@ async function onEffectRecordingStop() {
   setStatus('タップして次の言葉を録音');
   playRound(sessionRounds.length - 1);
 
-  // バックグラウンドで生声をAPIに送りピッチ解析 → Claudeでバッキング生成
+  // バックグラウンドで生声をAPIに送りピッチ解析 → バッキング即更新
   if (rawChunks.length > 0) {
     const rawBlob = new Blob(rawChunks, { type: 'audio/webm' });
     analyzeAudioFromBlob(rawBlob).then(async features => {
       console.log('[Pitch API] detected MIDIs:', features.validMidis);
       sessionRounds[roundIdx].features = features;
+
+      // ピッチ解析結果が届いたら、まずフォールバックバッキングをピッチ付きで更新
+      if (features.validMidis.length > 0) {
+        const pitchBacking = getFallbackBacking(features, roundIdx);
+        sessionRounds[roundIdx].backing = pitchBacking;
+        // 現在このラウンドが再生中なら即座に切り替え
+        const currentRound = playlist[playlistIdx % Math.max(1, playlist.length)];
+        if (currentRound === sessionRounds[roundIdx] && isPlaying) {
+          console.log('[Player] Switching to pitch-based backing');
+          playNext();
+        }
+      }
+
+      // その後ClaudeでさらにリッチなバッキングをAI生成
       const backing = await generateBacking(features, roundIdx);
       if (backing) {
         sessionRounds[roundIdx].backing = backing;
         console.log('[Claude] new backing mood:', backing.mood, 'melody:', backing.melody);
         updateRoundCard(roundIdx + 1, backing, features.validMidis.length);
-        // 現在このラウンドが再生中なら即座に切り替える
-        const currentRound = playlist[playlistIdx % Math.max(1, playlist.length)];
-        if (currentRound === sessionRounds[roundIdx] && isPlaying) {
-          console.log('[Player] Switching to Claude backing immediately');
+        // 再度切り替え
+        const currentRound2 = playlist[playlistIdx % Math.max(1, playlist.length)];
+        if (currentRound2 === sessionRounds[roundIdx] && isPlaying) {
+          console.log('[Player] Switching to Claude backing');
           playNext();
         }
       }
@@ -498,7 +512,11 @@ function getFallbackBacking(features, idx) {
     ? [[root,root+3,root+7],[root+5,root+8,root+12],[root+7,root+10,root+14],[root+5,root+8,root+12]]
     : [[root,root+4,root+7],[root+5,root+9,root+12],[root+7,root+11,root+14],[root+5,root+9,root+12]];
   const bass = [root-12,root-12,root+5-12,root+5-12,root+7-12,root+7-12,root+5-12,root-12];
-  const melody = [root+12,root+14,root+16,root+14,root+12,null,root+11,root+12];
+  // 検出されたピッチがあればそれをメロディーとして使う
+  const validMidis = features.validMidis || [];
+  const melody = validMidis.length > 0
+    ? [...validMidis.slice(0, 8), ...Array(Math.max(0, 8 - validMidis.length)).fill(null)]
+    : [root+12, root+14, root+16, root+14, root+12, null, root+11, root+12];
   const moods = ['穏やか','深く','躍動的','幻想的','力強く'];
   return {
     bpm, chords, bass, melody,
@@ -566,7 +584,7 @@ function playNext() {
   // エフェクト済み声を<audio>で再生
   const audioEl = new Audio(round.blobUrl);
   audioEl.loop = false;
-  audioEl.volume = 0.85;
+  audioEl.volume = 0.60;
   audioEl.play().catch(()=>{});
 
   const dur = Math.max(4000, (round.duration || 3) * 1000 + 1500);
