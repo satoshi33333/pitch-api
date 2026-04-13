@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>声を楽器に</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif;
+  background: #0c0c0c;
+  color: #f0f0ee;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  gap: 0;
+}
+
+.title { font-size: 22px; font-weight: 700; margin-bottom: 0.4rem; }
+.subtitle { font-size: 13px; color: #555; margin-bottom: 2.5rem; }
+
+/* 音色選択 */
+.tone-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.tone-btn {
+  padding: 7px 16px;
+  border-radius: 20px;
+  border: 1px solid #2a2a2a;
+  background: transparent;
+  color: #555;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tone-btn:hover { border-color: #444; color: #888; }
+.tone-btn.active { border-color: #4a9eff; color: #4a9eff; background: rgba(74,158,255,0.08); }
+
+/* 録音ボタン */
+.rec-btn {
+  width: 110px; height: 110px;
+  border-radius: 50%;
+  border: 2px solid #2a2a2a;
+  background: #161616;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  gap: 8px;
+  user-select: none;
+  margin-bottom: 1.5rem;
+}
+.rec-btn:hover { border-color: #444; }
+.rec-btn.recording { border-color: #e24b4a; animation: pulse 1s infinite; }
+.rec-icon { width: 28px; height: 28px; border-radius: 50%; background: #e24b4a; transition: all 0.2s; }
+.rec-btn.recording .rec-icon { border-radius: 6px; }
+.rec-lbl { font-size: 11px; color: #444; letter-spacing: 0.08em; }
+.rec-btn.recording .rec-lbl { color: #e24b4a; }
+@keyframes pulse {
+  0%,100%{box-shadow:0 0 0 0 rgba(226,75,74,0.2)}
+  50%{box-shadow:0 0 0 18px rgba(226,75,74,0)}
+}
+
+/* ステータス */
+.status { font-size: 13px; color: #444; min-height: 20px; text-align: center; margin-bottom: 1rem; }
+
+/* 波形 */
+.waveform {
+  display: flex; align-items: center; gap: 2px;
+  height: 44px; margin-bottom: 1.5rem;
+}
+.bar { width: 3px; border-radius: 2px; background: #1e1e1e; transition: height 0.07s; }
+.bar.live { background: #e24b4a; }
+
+/* ピッチ表示 */
+.pitch-now {
+  font-size: 52px; font-weight: 700;
+  color: #4a9eff;
+  min-height: 64px;
+  text-align: center;
+  margin-bottom: 0.25rem;
+  transition: all 0.08s;
+}
+.pitch-freq { font-size: 12px; color: #333; min-height: 18px; text-align: center; margin-bottom: 1.5rem; }
+
+/* ピッチ履歴（ドット表示） */
+.pitch-history {
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 60px; margin-bottom: 2rem;
+  min-width: 200px;
+}
+.pitch-dot {
+  width: 4px; border-radius: 2px;
+  background: #4a9eff;
+  opacity: 0.6;
+  transition: height 0.1s;
+}
+
+/* 再生ボタン */
+.play-btn {
+  padding: 12px 36px;
+  border-radius: 10px;
+  border: 1px solid #2a2a2a;
+  background: transparent;
+  color: #666;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: none;
+}
+.play-btn:hover { border-color: #4a9eff; color: #4a9eff; }
+.play-btn.visible { display: block; }
+.play-btn.playing { border-color: #e24b4a; color: #e24b4a; }
+
+/* もう一度ボタン */
+.retry-btn {
+  margin-top: 1rem;
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: 1px solid #1e1e1e;
+  background: transparent;
+  color: #333;
+  font-size: 12px;
+  cursor: pointer;
+  display: none;
+  transition: all 0.15s;
+}
+.retry-btn:hover { color: #666; border-color: #333; }
+.retry-btn.visible { display: block; }
+</style>
+</head>
+<body>
+
+<div class="title">声を楽器に</div>
+<div class="subtitle">言葉を話してください。あなたの声が楽器になります。</div>
+
+<!-- 音色選択 -->
+<div class="tone-selector">
+  <button class="tone-btn active" data-tone="triangle">やわらかい</button>
+  <button class="tone-btn" data-tone="sine">まるい</button>
+  <button class="tone-btn" data-tone="sawtooth">つよい</button>
+  <button class="tone-btn" data-tone="square">オルガン</button>
+</div>
+
+<!-- 録音ボタン -->
+<div class="rec-btn" id="recBtn">
+  <div class="rec-icon" id="recIcon"></div>
+  <div class="rec-lbl" id="recLbl">REC</div>
+</div>
+
+<div class="status" id="status">タップして録音開始</div>
+
+<!-- 波形 -->
+<div class="waveform" id="waveform">
+  <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+  <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+  <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+  <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+  <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+  <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+  <div class="bar"></div><div class="bar"></div>
+</div>
+
+<!-- リアルタイムピッチ表示 -->
+<div class="pitch-now" id="pitchNow">—</div>
+<div class="pitch-freq" id="pitchFreq"></div>
+
+<!-- ピッチ履歴ドット -->
+<div class="pitch-history" id="pitchHistory"></div>
+
+<!-- 再生 -->
+<button class="play-btn" id="playBtn">▶ 楽器として再生</button>
+<button class="retry-btn" id="retryBtn">もう一度録音</button>
+
+<script>
+// ===================== 設定 =====================
+let selectedTone = 'triangle';
+let isRecording = false;
+let audioCtx = null, analyserNode = null, mediaStream = null;
+let waveAnimId = null, detectAnimId = null;
+let recordedPitches = [];
+let recordStartTime = 0;
+let isPlaying = false;
+let playCtx = null;
+
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+function midiToNote(midi) { return NOTE_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1); }
+function midiToFreq(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
+function freqToMidi(f) { return Math.round(12 * Math.log2(f / 440) + 69); }
+
+// ===================== 音色選択 =====================
+document.querySelectorAll('.tone-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tone-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedTone = btn.dataset.tone;
+    // 再生中なら音色を変えて再再生
+    if (isPlaying) {
+      stopPlay();
+      setTimeout(playAsInstrument, 100);
+    }
+  });
+});
+
+// ===================== YINピッチ検出 =====================
+function yinPitch(buf, sr) {
+  const SIZE = Math.min(buf.length, 1024);
+  const HALF = Math.floor(SIZE / 2);
+  let rms = 0;
+  for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+  rms = Math.sqrt(rms / SIZE);
+  if (rms < 0.008) return null;
+
+  const minTau = Math.floor(sr / 800);
+  const maxTau = Math.min(HALF - 1, Math.floor(sr / 60));
+  const d = new Float32Array(maxTau + 1);
+  for (let tau = minTau; tau <= maxTau; tau++) {
+    for (let j = 0; j < HALF; j++) {
+      const diff = buf[j] - buf[j + tau];
+      d[tau] += diff * diff;
+    }
+  }
+  const cmndf = new Float32Array(maxTau + 1);
+  cmndf[0] = 1;
+  let runSum = 0;
+  for (let tau = 1; tau <= maxTau; tau++) {
+    runSum += d[tau];
+    cmndf[tau] = runSum === 0 ? 0 : d[tau] * tau / runSum;
+  }
+  let tau = minTau;
+  while (tau < maxTau) {
+    if (cmndf[tau] < 0.12) {
+      while (tau + 1 < maxTau && cmndf[tau + 1] < cmndf[tau]) tau++;
+      break;
+    }
+    tau++;
+  }
+  if (tau >= maxTau) {
+    let minVal = Infinity, minIdx = minTau;
+    for (let t = minTau; t <= maxTau; t++) {
+      if (cmndf[t] < minVal) { minVal = cmndf[t]; minIdx = t; }
+    }
+    if (minVal > 0.4) return null;
+    tau = minIdx;
+  }
+  if (tau > 0 && tau < maxTau) {
+    const s0 = cmndf[tau-1], s1 = cmndf[tau], s2 = cmndf[tau+1];
+    const d2 = 2*s1 - s2 - s0;
+    if (d2 !== 0) tau = tau + (s2 - s0) / (2 * d2);
+  }
+  const freq = sr / tau;
+  return (freq >= 60 && freq <= 800) ? freq : null;
+}
+
+// ===================== 録音 =====================
+document.getElementById('recBtn').addEventListener('click', toggleRecord);
+document.getElementById('retryBtn').addEventListener('click', () => {
+  document.getElementById('retryBtn').classList.remove('visible');
+  document.getElementById('playBtn').classList.remove('visible');
+  document.getElementById('pitchNow').textContent = '—';
+  document.getElementById('pitchFreq').textContent = '';
+  document.getElementById('pitchHistory').innerHTML = '';
+  recordedPitches = [];
+});
+
+async function toggleRecord() {
+  if (!isRecording) await startRecord();
+  else stopRecord();
+}
+
+async function startRecord() {
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch(e) {
+    setStatus('マイクへのアクセスを許可してください');
+    return;
+  }
+  audioCtx = new AudioContext();
+  analyserNode = audioCtx.createAnalyser();
+  analyserNode.fftSize = 2048;
+  audioCtx.createMediaStreamSource(mediaStream).connect(analyserNode);
+
+  isRecording = true;
+  recordedPitches = [];
+  recordStartTime = audioCtx.currentTime;
+  document.getElementById('recBtn').classList.add('recording');
+  document.getElementById('recLbl').textContent = '停止';
+  document.getElementById('playBtn').classList.remove('visible');
+  document.getElementById('retryBtn').classList.remove('visible');
+  document.getElementById('pitchHistory').innerHTML = '';
+  setStatus('録音中...');
+  detectLoop();
+}
+
+function stopRecord() {
+  isRecording = false;
+  cancelAnimationFrame(detectAnimId);
+  if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+  if (audioCtx) audioCtx.close();
+  document.getElementById('recBtn').classList.remove('recording');
+  document.getElementById('recLbl').textContent = 'REC';
+  resetWave();
+
+  if (recordedPitches.length > 0) {
+    setStatus(`${recordedPitches.length}個のピッチを検出`);
+    document.getElementById('playBtn').classList.add('visible');
+    document.getElementById('retryBtn').classList.add('visible');
+  } else {
+    setStatus('ピッチを検出できませんでした');
+    document.getElementById('pitchNow').textContent = '—';
+    document.getElementById('retryBtn').classList.add('visible');
+  }
+}
+
+// ===================== 検出ループ =====================
+function detectLoop() {
+  if (!isRecording) return;
+  const buf = new Float32Array(analyserNode.fftSize);
+  analyserNode.getFloatTimeDomainData(buf);
+
+  const freq = yinPitch(buf, audioCtx.sampleRate);
+  if (freq) {
+    const midi = freqToMidi(freq);
+    if (midi >= 36 && midi <= 84) {
+      const time = audioCtx.currentTime - recordStartTime;
+      recordedPitches.push({ freq, midi, time });
+      document.getElementById('pitchNow').textContent = midiToNote(midi);
+      document.getElementById('pitchFreq').textContent = freq.toFixed(1) + ' Hz';
+      addPitchDot(midi);
+    }
+  }
+
+  // 波形
+  const bars = document.querySelectorAll('#waveform .bar');
+  const td = new Uint8Array(analyserNode.frequencyBinCount);
+  analyserNode.getByteTimeDomainData(td);
+  bars.forEach((b, i) => {
+    const v = Math.abs(td[Math.floor(i * td.length / bars.length)] - 128) / 128;
+    b.style.height = Math.max(3, Math.round(v * 40)) + 'px';
+    b.classList.add('live');
+  });
+
+  detectAnimId = requestAnimationFrame(detectLoop);
+}
+
+// ピッチ履歴にドットを追加
+function addPitchDot(midi) {
+  const container = document.getElementById('pitchHistory');
+  const dot = document.createElement('div');
+  dot.className = 'pitch-dot';
+  // MIDI 60(C4)〜84(C6)を高さ5px〜55pxにマッピング
+  const h = Math.round(5 + ((midi - 36) / 48) * 50);
+  dot.style.height = Math.max(5, Math.min(55, h)) + 'px';
+  container.appendChild(dot);
+  // 多すぎたら古いのを削除
+  while (container.children.length > 80) container.removeChild(container.firstChild);
+  container.scrollLeft = container.scrollWidth;
+}
+
+function resetWave() {
+  document.querySelectorAll('#waveform .bar').forEach(b => {
+    b.style.height = '3px'; b.classList.remove('live');
+  });
+}
+function setStatus(t) { document.getElementById('status').textContent = t; }
+
+// ===================== 楽器として再生 =====================
+document.getElementById('playBtn').addEventListener('click', () => {
+  if (isPlaying) stopPlay();
+  else playAsInstrument();
+});
+
+async function playAsInstrument() {
+  if (recordedPitches.length === 0) return;
+  isPlaying = true;
+  const btn = document.getElementById('playBtn');
+  btn.textContent = '■ 停止';
+  btn.classList.add('playing');
+
+  playCtx = new AudioContext();
+  const master = playCtx.createGain();
+  master.gain.value = 0.7;
+  master.connect(playCtx.destination);
+
+  // リバーブ（擬似）
+  const rev1 = playCtx.createDelay(0.5); rev1.delayTime.value = 0.06;
+  const rev2 = playCtx.createDelay(0.5); rev2.delayTime.value = 0.13;
+  const rev3 = playCtx.createDelay(0.5); rev3.delayTime.value = 0.22;
+  const revG1 = playCtx.createGain(); revG1.gain.value = 0.3;
+  const revG2 = playCtx.createGain(); revG2.gain.value = 0.2;
+  const revG3 = playCtx.createGain(); revG3.gain.value = 0.12;
+  rev1.connect(revG1); revG1.connect(master);
+  rev2.connect(revG2); revG2.connect(master);
+  rev3.connect(revG3); revG3.connect(master);
+
+  // ピッチを圧縮（同じノートが続く場合まとめる）
+  const notes = [];
+  let prev = null;
+  for (const p of recordedPitches) {
+    if (prev && prev.midi === p.midi && p.time - (prev.time + prev.dur) < 0.15) {
+      prev.dur = p.time - prev.time + 0.05;
+    } else {
+      if (prev) notes.push(prev);
+      prev = { midi: p.midi, time: p.time, dur: 0.08 };
+    }
+  }
+  if (prev) notes.push(prev);
+
+  // 各ノートを再生
+  let lastEnd = 0;
+  notes.forEach(note => {
+    const osc = playCtx.createOscillator();
+    const gain = playCtx.createGain();
+    osc.type = selectedTone;
+    osc.frequency.value = midiToFreq(note.midi);
+
+    // サイン波は倍音を加算して豊かに
+    if (selectedTone === 'sine') {
+      const osc2 = playCtx.createOscillator();
+      const g2 = playCtx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.value = midiToFreq(note.midi) * 2;
+      g2.gain.value = 0.2;
+      osc2.connect(g2); g2.connect(gain);
+      osc2.start(playCtx.currentTime + note.time);
+      osc2.stop(playCtx.currentTime + note.time + note.dur + 0.3);
+    }
+
+    const startT = playCtx.currentTime + note.time;
+    const dur = Math.max(0.06, note.dur);
+    const attack = Math.min(0.04, dur * 0.2);
+    const release = Math.min(0.3, dur * 0.6);
+
+    gain.gain.setValueAtTime(0, startT);
+    gain.gain.linearRampToValueAtTime(0.85, startT + attack);
+    gain.gain.setValueAtTime(0.85, startT + dur - release);
+    gain.gain.exponentialRampToValueAtTime(0.001, startT + dur + release);
+
+    osc.connect(gain);
+    gain.connect(master);
+    gain.connect(rev1);
+    gain.connect(rev2);
+    gain.connect(rev3);
+
+    osc.start(startT);
+    osc.stop(startT + dur + release + 0.1);
+
+    lastEnd = Math.max(lastEnd, note.time + dur + release + 0.2);
+  });
+
+  // 再生終了後にリセット
+  setTimeout(() => {
+    isPlaying = false;
+    playCtx = null;
+    btn.textContent = '▶ 楽器として再生';
+    btn.classList.remove('playing');
+    setStatus(`${recordedPitches.length}個のピッチを検出`);
+  }, lastEnd * 1000 + 500);
+}
+
+function stopPlay() {
+  isPlaying = false;
+  if (playCtx) { try { playCtx.close(); } catch(e){} playCtx = null; }
+  const btn = document.getElementById('playBtn');
+  btn.textContent = '▶ 楽器として再生';
+  btn.classList.remove('playing');
+  setStatus(`${recordedPitches.length}個のピッチを検出`);
+}
+</script>
+</body>
+</html>
